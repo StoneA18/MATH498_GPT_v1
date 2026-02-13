@@ -121,7 +121,7 @@ class LanguageModel(nn.Module):
                 print(f"step {step}, loss = {loss.item():.4f}")
 
         return llm
-    
+        
     def query(self, prompt, response_length=30):
         for i in range(response_length):
             prompt_tokens = [self.token_to_id[tok] for tok in prompt.lower().split()]
