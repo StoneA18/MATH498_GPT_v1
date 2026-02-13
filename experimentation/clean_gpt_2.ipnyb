@@ -1,0 +1,503 @@
+{
+ "cells": [
+  {
+   "cell_type": "code",
+   "execution_count": 1,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "from dataclasses import dataclass\n",
+    "import torch\n",
+    "import torch.nn as nn\n",
+    "import numpy as np\n",
+    "import requests\n",
+    "import re\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 15,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "@dataclass\n",
+    "class Config:\n",
+    "    d_model:int\n",
+    "    d_vocab:int\n",
+    "    d_hidden:int\n",
+    "    max_seq_len:int\n",
+    "    numTrans:int"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 117,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "class MLP(nn.Module):\n",
+    "    def __init__(self, config: Config):\n",
+    "        super().__init__()\n",
+    "        self.fc1 = nn.Linear(config.d_model, config.d_hidden)\n",
+    "        self.act = nn.GELU()\n",
+    "        self.fc2 = nn.Linear(config.d_hidden, config.d_model)\n",
+    "\n",
+    "    def forward(self, x):\n",
+    "        x = self.fc2(self.act(self.fc1(x)))\n",
+    "        return x"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 148,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "class Attention(nn.Module):\n",
+    "    def __init__(self, config: Config):\n",
+    "        super().__init__()\n",
+    "        self.Wqk = nn.Parameter(torch.rand(config.d_model, config.d_model))\n",
+    "        self.Wov = nn.Parameter(torch.rand(config.d_model, config.d_model))\n",
+    "\n",
+    "        mask = torch.triu(torch.ones(config.max_seq_len, config.max_seq_len),\n",
+    "                          diagonal=1\n",
+    "                          )\n",
+    "        mask = mask.masked_fill(mask==1, -float('inf'))\n",
+    "        self.register_buffer(\"M\", mask)\n",
+    "\n",
+    "    \n",
+    "    def forward(self, x): \n",
+    "        T = x.size(0)\n",
+    "        temp = x @ self.Wqk @ x.T + self.M[:T, :T]\n",
+    "        scores = torch.softmax(temp,dim=-1)\n",
+    "        scores = scores @ x @ self.Wov\n",
+    "\n",
+    "        return scores\n",
+    "\n",
+    "\n",
+    "        "
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 135,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "class Transformer(nn.Module):\n",
+    "    def __init__(self, config: Config):\n",
+    "        super().__init__()\n",
+    "        self.attn = Attention(config)\n",
+    "        self.mlp = MLP(config)\n",
+    "        self.ln1 = nn.LayerNorm(config.d_model)\n",
+    "        self.ln2 = nn.LayerNorm(config.d_model)\n",
+    "\n",
+    "    def forward(self, x):\n",
+    "        #res = self.mlp(x) + self.attn(x) + x\n",
+    "        x_norm = self.ln1(x)\n",
+    "        attn_out = self.attn(x_norm)\n",
+    "        x = x+attn_out\n",
+    "        x_norm = self.ln2(x)\n",
+    "        mlp_out = self.mlp(x_norm)\n",
+    "        x = x+mlp_out\n",
+    "\n",
+    "        return x"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 132,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "class LanguageModel(nn.Module):\n",
+    "    def __init__(self, config: Config):\n",
+    "        super().__init__()\n",
+    "        self.config = config\n",
+    "        self.embedding = nn.Embedding(config.d_vocab, config.d_model)\n",
+    "        self.tbs = nn.ModuleList([Transformer(config) for i in range(config.numTrans)])\n",
+    "        self.lm_head = nn.Linear(config.d_model, config.d_vocab)\n",
+    "        #self.t1 = Transformer(config)\n",
+    "    \n",
+    "    def forward(self, x_tokens):\n",
+    "        x = self.embedding(x_tokens)\n",
+    "        #print(\"print:\", x)\n",
+    "        #print(x.shape)\n",
+    "        #x = self.tbs[0](x)\n",
+    "        temp = x\n",
+    "        for i in range(self.config.numTrans):\n",
+    "            temp = self.tbs[i](temp)\n",
+    "\n",
+    "        #X = torch.stack(x)\n",
+    "        logits = self.lm_head(temp)\n",
+    "        \n",
+    "        return logits\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 102,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "print: tensor([[-0.7944,  0.0694, -1.1110,  0.2390,  1.6615,  0.2036, -2.3093,  0.5981,\n",
+      "         -0.3093, -1.6148,  0.2977, -1.4753, -1.1695,  1.4504, -0.2982,  1.8375,\n",
+      "          2.4953, -0.8453,  1.9331,  1.6689,  0.5970, -0.1269,  1.4442,  2.4607,\n",
+      "         -0.4572,  1.3322,  0.8104,  0.4218,  0.4379,  0.2268],\n",
+      "        [-0.2557, -0.8942, -0.1599,  1.1083,  2.3791, -0.6424, -0.8916, -0.5681,\n",
+      "         -1.6527,  0.2191,  0.2044, -0.4241,  0.2191, -1.2327, -1.1605,  0.2430,\n",
+      "         -0.6062, -1.7789, -0.5964,  1.4906, -1.0981,  0.6335,  0.7708, -0.4384,\n",
+      "          0.8050, -0.2906,  0.3159,  0.0957, -0.6620, -1.1389],\n",
+      "        [-0.1011, -0.8689, -0.0289, -0.1396, -0.0191, -1.6083, -1.2933, -1.8575,\n",
+      "         -0.5145, -0.4561,  0.0904,  0.7941, -1.9481,  0.7779, -0.3536,  1.7373,\n",
+      "         -1.0451,  0.9509,  0.8448, -0.4336, -0.0108,  1.1723,  1.3259, -1.9029,\n",
+      "          0.7299,  0.1468,  0.7332, -0.4048, -0.0593,  0.6759]],\n",
+      "       grad_fn=<EmbeddingBackward0>)\n",
+      "torch.Size([3, 30])\n"
+     ]
+    }
+   ],
+   "source": [
+    "config = Config(d_model=30, d_vocab=100, d_hidden=128, max_seq_len=3, numTrans=3)\n",
+    "model = LanguageModel(config)\n",
+    "x = torch.tensor([1, 5, 24])\n",
+    "#print(x)\n",
+    "res = model(x)\n",
+    "#print(res)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 10,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "tensor([[0., 1., 1., 1., 1., 1., 1., 1., 1., 1.],\n",
+      "        [0., 0., 1., 1., 1., 1., 1., 1., 1., 1.],\n",
+      "        [0., 0., 0., 1., 1., 1., 1., 1., 1., 1.],\n",
+      "        [0., 0., 0., 0., 1., 1., 1., 1., 1., 1.],\n",
+      "        [0., 0., 0., 0., 0., 1., 1., 1., 1., 1.],\n",
+      "        [0., 0., 0., 0., 0., 0., 1., 1., 1., 1.],\n",
+      "        [0., 0., 0., 0., 0., 0., 0., 1., 1., 1.],\n",
+      "        [0., 0., 0., 0., 0., 0., 0., 0., 1., 1.],\n",
+      "        [0., 0., 0., 0., 0., 0., 0., 0., 0., 1.],\n",
+      "        [0., 0., 0., 0., 0., 0., 0., 0., 0., 0.]])\n",
+      "tensor([[0., -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf],\n",
+      "        [0., 0., -inf, -inf, -inf, -inf, -inf, -inf, -inf, -inf],\n",
+      "        [0., 0., 0., -inf, -inf, -inf, -inf, -inf, -inf, -inf],\n",
+      "        [0., 0., 0., 0., -inf, -inf, -inf, -inf, -inf, -inf],\n",
+      "        [0., 0., 0., 0., 0., -inf, -inf, -inf, -inf, -inf],\n",
+      "        [0., 0., 0., 0., 0., 0., -inf, -inf, -inf, -inf],\n",
+      "        [0., 0., 0., 0., 0., 0., 0., -inf, -inf, -inf],\n",
+      "        [0., 0., 0., 0., 0., 0., 0., 0., -inf, -inf],\n",
+      "        [0., 0., 0., 0., 0., 0., 0., 0., 0., -inf],\n",
+      "        [0., 0., 0., 0., 0., 0., 0., 0., 0., 0.]])\n"
+     ]
+    }
+   ],
+   "source": [
+    "mask = torch.triu(torch.ones(10, 10),\n",
+    "                          diagonal=1\n",
+    "                          )\n",
+    "print(mask)\n",
+    "mask = mask.masked_fill(mask==1, -float('inf'))\n",
+    "print(mask)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 121,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "url = \"https://www.gutenberg.org/files/1342/1342-0.txt\" # Just a demo dataset, we can think about more creative datasets.\n",
+    "r = requests.get(url)\n",
+    "text = r.text"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 122,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "7030\n"
+     ]
+    }
+   ],
+   "source": [
+    "text = text.lower().replace(\"\\n\", \" \")\n",
+    "tokens = text.split()\n",
+    "tokens = re.findall(r\"\\b\\w+\\b\", text.lower()) # I just used normal tokenization like word level token (every word is a token). We need to think about more advance tokenization techniques\n",
+    "\n",
+    "\n",
+    "\n",
+    "vocab = list(set(tokens))\n",
+    "vocab.sort()\n",
+    "\n",
+    "token2id = {token: idx for idx, token in enumerate(vocab)}\n",
+    "id2token = {idx: tok for tok, idx in token2id.items()}\n",
+    "print(len(vocab))"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 137,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "128769\n"
+     ]
+    }
+   ],
+   "source": [
+    "config = Config(d_model=512, d_vocab=len(vocab), d_hidden=256, max_seq_len=2048, numTrans=10)  \n",
+    "\n",
+    "token_ids = [token2id[tok] for tok in tokens]\n",
+    "\n",
+    "print(len(token_ids))\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 110,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "torch.Size([1024, 256])\n",
+      "tensor([[-0.5160,  0.7113, -0.0558,  ..., -0.8867,  0.5741, -0.5948],\n",
+      "        [ 0.5847,  0.6961,  1.7776,  ..., -0.0519, -0.8276, -1.2384],\n",
+      "        [ 0.5659,  1.7559,  1.2014,  ...,  0.7154,  0.3652,  1.2285],\n",
+      "        ...,\n",
+      "        [-0.9939,  1.0405, -1.2781,  ..., -1.8229, -0.4732, -0.4594],\n",
+      "        [ 0.2529,  0.1049, -0.9330,  ..., -1.6087, -0.3750,  1.7282],\n",
+      "        [ 0.3846, -1.1015, -1.0821,  ..., -1.3964, -0.7394,  0.6740]],\n",
+      "       grad_fn=<EmbeddingBackward0>)\n"
+     ]
+    }
+   ],
+   "source": [
+    "# Testing....\n",
+    "embedding = nn.Embedding(num_embeddings=config.d_vocab, embedding_dim=config.d_model)\n",
+    "\n",
+    "token_ids_tensor = torch.tensor(token_ids[:config.max_seq_len])\n",
+    "#print(token_ids_tensor)\n",
+    "\n",
+    "x = embedding(token_ids_tensor)\n",
+    "print(x.shape)\n",
+    "print(x)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 139,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "torch.Size([2048])\n"
+     ]
+    }
+   ],
+   "source": [
+    "x_ids = torch.tensor(token_ids[:config.max_seq_len])\n",
+    "y_ids = torch.tensor(token_ids[1:config.max_seq_len+1])\n",
+    "\n",
+    "print(x_ids.shape)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 125,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "model = LanguageModel(config)\n",
+    "logits = model(x_ids)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 126,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "torch.Size([1024, 7030])\n",
+      "torch.Size([1024])\n"
+     ]
+    }
+   ],
+   "source": [
+    "print(logits.shape)\n",
+    "print(y_ids.shape)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 141,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "torch.Size([2048])\n"
+     ]
+    }
+   ],
+   "source": [
+    "targets = y_ids\n",
+    "print(targets.shape)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 128,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Loss:  12266370048.0\n"
+     ]
+    }
+   ],
+   "source": [
+    "loss_fn = nn.CrossEntropyLoss()\n",
+    "loss = loss_fn(logits, targets)\n",
+    "print(\"Loss: \", loss.item())"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 149,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "step 0, loss = 44.6669\n",
+      "step 50, loss = 29.4550\n",
+      "step 100, loss = 20.2477\n",
+      "step 150, loss = 14.9704\n",
+      "step 200, loss = 12.0333\n",
+      "step 250, loss = 10.3192\n",
+      "step 300, loss = 9.0955\n",
+      "step 350, loss = 8.1799\n",
+      "step 400, loss = 7.6619\n",
+      "step 450, loss = 7.2614\n",
+      "step 500, loss = 6.8881\n",
+      "step 550, loss = 6.8632\n",
+      "step 600, loss = 6.8578\n",
+      "step 650, loss = 6.7523\n",
+      "step 700, loss = 6.7974\n",
+      "step 750, loss = 6.7385\n",
+      "step 800, loss = 6.7152\n",
+      "step 850, loss = 6.7638\n",
+      "step 900, loss = 6.7439\n",
+      "step 950, loss = 6.8114\n"
+     ]
+    }
+   ],
+   "source": [
+    "### Training Loop ###\n",
+    "model = LanguageModel(config)\n",
+    "optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)\n",
+    "loss_fn = nn.CrossEntropyLoss()\n",
+    "\n",
+    "for step in range(1000):  # number of training steps\n",
+    "    # sample a random chunk of text\n",
+    "    start = np.random.randint(0, len(token_ids) - config.max_seq_len - 1)\n",
+    "    x_ids = torch.tensor(token_ids[start:start+config.max_seq_len])\n",
+    "    y_ids = torch.tensor(token_ids[start+1:start+config.max_seq_len+1])\n",
+    "    logits = model(x_ids)\n",
+    "    loss = loss_fn(logits, targets)\n",
+    "    optimizer.zero_grad()\n",
+    "    loss.backward()\n",
+    "    optimizer.step()\n",
+    "\n",
+    "    if step % 50 == 0:\n",
+    "        print(f\"step {step}, loss = {loss.item():.4f}\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 151,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "distinguished of of of not same an colour in distinguished quite him distinguished quite him distinguished quite him distinguished quite him distinguished quite him distinguished quite him distinguished quite him distinguished quite him distinguished quite him distinguished quite him distinguished quite him distinguished quite him distinguished quite him distinguished quite "
+     ]
+    }
+   ],
+   "source": [
+    "max_num_tokens = 50\n",
+    "prompt_text = \"it is a truth\"\n",
+    "\n",
+    "for i in range(max_num_tokens):\n",
+    "    prompt_tokens = [token2id[tok] for tok in prompt_text.lower().split()]\n",
+    "    prompt_tensor = torch.tensor(prompt_tokens)\n",
+    "\n",
+    "    with torch.no_grad():\n",
+    "        logits = model(prompt_tensor)\n",
+    "    \n",
+    "    last_logits = logits[-1]\n",
+    "    prob = torch.softmax(last_logits, dim=-1)\n",
+    "    next_token_id = torch.argmax(prob).item()\n",
+    "    next_token = id2token[next_token_id]\n",
+    "    print(next_token, end=' ')\n",
+    "\n",
+    "    # append to prompt\n",
+    "    prompt_text += \" \" + next_token\n",
+    "\n",
+    "    "
+   ]
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": ".venv",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.11.14"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 2
+}
