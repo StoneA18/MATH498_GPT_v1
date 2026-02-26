@@ -222,7 +222,6 @@ class Vocab:
                 for row in r:
                     w.writelines([row[2][1:-1]+'\n'])
         return fname
-            
 
 # -------------- Actual Language Model Modules -----------
 
@@ -323,9 +322,12 @@ class GPT:
         self.model.embedding = nn.Embedding(self.config.d_vocab, self.config.d_model)
         self.model.lm_head = nn.Linear(self.config.d_model, self.config.d_vocab)
 
-    def train(self, n_iter = 100, plain_text = None, text_file = None, update = 50, plot = True):
+    def train(self, n_iter = 100, plain_text = None, text_file = None, update = 50, plot = True, sample_prompt = None):
         """
         train the model on some text for a certain number of iterations
+        plot: True by default. Plot the loss function.
+        update: Default 50. How many iterations to be updated on the progress. Use 0 for no updates.
+        sample_prompt: Test prompt to compare model response before and after training. By default, no querying will be done.
         """
         if text_file == None and plain_text == None:
             print("ERROR: Need either text_file or plain_text to add text. Doing nothing.")
@@ -349,6 +351,10 @@ class GPT:
         optimizer = torch.optim.Adam(self.model.parameters(), lr=1e-3)
         loss_fn = nn.CrossEntropyLoss()
 
+        sample_out_tokens = 10
+        if sample_prompt != None:
+            print(f"Initially trying query '{sample_prompt}'... \n Response: {self.query(sample_prompt, sample_out_tokens)}")
+
         for step in range(n_iter):  # number of training steps
             # sample a random chunk of text
             start = np.random.randint(0, len(token_ids) - self.config.max_seq_len - 1)
@@ -365,6 +371,9 @@ class GPT:
 
             if update > 0 and step % update == 0:
                 print(f"Step {step} ({step/n_iter*100:.2f}%), loss is {loss.item():.4f}")
+
+        if sample_prompt != None:
+            print(f"Again trying query '{sample_prompt}'... \n Response: {self.query(sample_prompt, sample_out_tokens)}")
 
         if plot:
             plt.plot(list(range(n_iter)),losses)
