@@ -152,6 +152,15 @@ class Vocab:
                 token_ids.append(id)
         return token_ids
     
+    def get_token_positions(self, token_ids):
+        positions = [-1 for _ in token_ids]
+        i = 0
+        for idx, id in enumerate(token_ids):
+            positions[idx] = i
+            i+=1
+            i = i%128
+        return torch.tensor(positions)
+    
     def get_token_from_id(self, id):
         """
         For generating, convert token id to token
@@ -279,11 +288,15 @@ class LanguageModel(nn.Module):
         super().__init__()
         self.config = config
         self.embedding = nn.Embedding(self.config.d_vocab, self.config.d_model)
+        self.positional_embedding = nn.Embedding(128, self.config.d_model)
         self.tbs = nn.ModuleList([Transformer(self.config) for _ in range(self.config.n_layers)])
         self.lm_head = nn.Linear(self.config.d_model, self.config.d_vocab)
     
-    def forward(self, x_tokens):
-        temp = self.embedding(x_tokens)
+    def forward(self, x_tokens, x_positions):
+        temp_tokens = self.embedding(x_tokens)
+        temp_pos = self.positional_embedding(x_positions)
+        temp = temp_tokens + temp_pos
+        #positions = self.positional_embedding()
         #look that propagates this through the transformer layers
         for i in range(self.config.n_layers):
             temp = self.tbs[i](temp)
@@ -311,11 +324,12 @@ class GPT:
         self.config.d_vocab = self.vocab.d_vocab
         self.model.config = self.config
         self.model.embedding = nn.Embedding(self.config.d_vocab, self.config.d_model)
+        self.model.positional_embedding = nn.Embedding(128, self.config.d_model)
         self.model.lm_head = nn.Linear(self.config.d_model, self.config.d_vocab)
 
     def refresh_vocab_dim(self):
         """
-        Ensure that the models vocab dimension and related components are up to date
+        Ensure that the models vocab dimension and related components are up to date, moslty just relevant when we train models multiple times.
         """
         self.config.d_vocab = self.vocab.d_vocab
         self.model.config = self.config
@@ -346,6 +360,7 @@ class GPT:
         tokens = self.vocab.get_token_arr(plain_text)
         self.update_vocab_with_tokens(tokens)
         token_ids = self.vocab.get_token_ids(tokens)
+        token_positions = self.vocab.get_token_positions(token_ids)
         losses = [-1 for _ in range(n_iter)]
         self.model.config.d_vocab = self.vocab.d_vocab #update vocab dimensions
         optimizer = torch.optim.Adam(self.model.parameters(), lr=1e-3)
@@ -359,8 +374,9 @@ class GPT:
             # sample a random chunk of text
             start = np.random.randint(0, len(token_ids) - self.config.max_seq_len - 1)
             x_ids = torch.tensor(token_ids[start:start+self.config.max_seq_len])
+            x_pos = token_positions[start:start+self.config.max_seq_len]
             y_ids = torch.tensor(token_ids[start+1:start+self.config.max_seq_len+1])
-            logits = self.model(x_ids)
+            logits = self.model(x_ids, x_pos)
             targets = y_ids
             loss = loss_fn(logits, targets)
             optimizer.zero_grad()
