@@ -5,12 +5,16 @@
 from dataclasses import dataclass
 import torch
 import torch.nn as nn
+import os
 import numpy as np
-import requests
 import re
 import matplotlib.pyplot as plt
 from datetime import datetime
 import json
+from IPython import get_ipython
+from IPython.display import display
+import csv
+import kagglehub
 
 @dataclass
 class Config:
@@ -126,17 +130,26 @@ class Vocab:
             i+=1
         self.d_vocab = i
     
-    def get_token_ids(self, tokens):
+    def get_token_ids(self, tokens, fail_on_unknown = True):
         """
         From an array of tokens, get an array of token IDs
         """
         n_seq = len(tokens)
-        token_ids = [-1 for _ in range(n_seq)]
-        for i in range(n_seq):
-            id = self.forward_dict.get(tokens[i],-1)
-            if id == -1:
-                print(f"ERROR: Token {tokens[i]} not found in vocabulary.")
-            token_ids[i] = id
+        if fail_on_unknown:
+            token_ids = [-1 for _ in range(n_seq)]
+            for i in range(n_seq):
+                id = self.forward_dict.get(tokens[i],-1)
+                if id == -1:
+                    print(f"ERROR: Token {tokens[i]} not found in vocabulary. Returning...")
+                    return []
+                token_ids[i] = id
+        else:
+            token_ids = []
+            for i in range(n_seq):
+                id = self.forward_dict.get(tokens[i],-1)
+                if id == -1:
+                    continue
+                token_ids.append(id)
         return token_ids
     
     def get_token_from_id(self, id):
@@ -154,7 +167,7 @@ class Vocab:
         Shortcut for getting token ID array for prompt string.
         """
         prompt_tokens = self.get_token_arr(prompt)
-        prompt_token_ids = self.get_token_ids(prompt_tokens)
+        prompt_token_ids = self.get_token_ids(prompt_tokens, fail_on_unknown=False)
         return prompt_token_ids
     
     def save(self, fname: str):
@@ -186,6 +199,29 @@ class Vocab:
         v.d_vocab = data.get("d_vocab", len(v.backward_dict))
 
         return v
+    
+    @staticmethod
+    def get_state_of_union_file(fname = './texts/state_of_union.txt'):
+        """
+        Pulls all state of union addresses until 2024 from Kaggle and saves it as fname.
+        By default stores to ./texts/state_of_union.txt, so user must have texts folder if using default
+        """
+        try:
+            path = kagglehub.dataset_download("nicholasheyerdahl/state-of-the-union-address-texts-1790-2024")
+            files = os.listdir(path)
+            csv_files = [f for f in files if f.endswith(".csv")]
+            csv_path = os.path.join(path, csv_files[0])
+        except:
+            print("Error in extracting data from Kaggle.")
+            return
+        csv.field_size_limit(250000)
+        with open(csv_path,'r',encoding='utf8') as f:
+            r = csv.reader(f)
+            next(r,None)
+            with open(fname,'w',encoding='utf8') as w:
+                for row in r:
+                    w.writelines([row[2][1:-1]+'\n'])
+        return fname
             
 
 # -------------- Actual Language Model Modules -----------
@@ -349,8 +385,11 @@ class GPT:
         
         for i in range(out_tokens):
             prompt_token_ids = self.vocab.get_prompt_token_ids(prompt)
+            if len(prompt_token_ids) == 0:
+                if len(prompt.strip() > 0):
+                    return "Prompt did not contain any recognized tokens."
+                return "No prompt provided!"
             prompt_tensor = torch.tensor(prompt_token_ids)
-
             with torch.no_grad():
                 logits = self.model(prompt_tensor)
             
@@ -371,17 +410,58 @@ class GPT:
         
         return out_text
     
+    def ipython_chat(model):
+        """
+        Enter chat mode in a jupyter notebook. Has a different UI. This code came from ChatGPT.
+        """
+        import ipywidgets as widgets
+        input_box = widgets.Text(
+            placeholder='type message...',
+            description='>>>',
+            layout=widgets.Layout(width='100%'),
+            continuous_update=False
+        )
+        output = widgets.Output(layout={
+            'border': '1px solid black',
+            'height': '250px',
+            'overflow_y': 'auto'
+        })
+        breakwords = ['f','q','quit','exit']
+        def handle_submit(change):
+            if change["name"] != "value":
+                return
+            prompt = change["new"]
+            if prompt == "":
+                return
+            input_box.value = ""
+            with output:
+                if prompt.lower() in breakwords:
+                    print("Session ended")
+                    input_box.disabled = True
+                    return
+                print(f">>> {prompt}")
+                response = model.query(prompt)
+                print(f'(model) "{response}"')
+
+        input_box.observe(handle_submit, names="value")
+
+        display(output, input_box)
+    
     def chat(self):
         """
         Enter CLI interface where you can chat with model.
+        Quit by entering 'q'
         """
-        breakwords = ['f','q','quit','exit']
-        while True:
-            prompt = input(">>> ")
-            if prompt.lower() in breakwords:
-                break
-            response = self.query(prompt)
-            print(f'(model) "{response}"')
+        if in_notebook():
+            self.ipython_chat()
+        else:
+            breakwords = ['f','q','quit','exit']
+            while True:
+                prompt = input(">>> ")
+                if prompt.lower() in breakwords:
+                    break
+                response = self.query(prompt, sampling='multinomial')
+                print(f'(model) "{response}"')
 
     def save(self, name = None):
         """
@@ -411,3 +491,22 @@ class GPT:
         gpt.model.load_state_dict(torch.load(model_path))
 
         return gpt
+    
+### ---- other utility functions ----
+
+def in_notebook():
+    """
+    Returns true if in notebook, so we know what kind of chat to open.
+    """
+    try:
+        shell = get_ipython()
+        if shell is None:
+            return False
+        shell_name = shell.__class__.__name__
+        if shell_name in ["ZMQInteractiveShell"]:
+            return True
+        if shell_name == "TerminalInteractiveShell":
+            return False
+        return False
+    except:
+        return False
