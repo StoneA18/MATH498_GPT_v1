@@ -284,7 +284,7 @@ class LanguageModel(nn.Module):
         self.lm_head = nn.Linear(self.config.d_model, self.config.d_vocab)
     
     def forward(self, x_tokens):
-        x_positions = torch.arange(self.config.max_seq_len)
+        x_positions = torch.arange(len(x_tokens))
         temp_tokens = self.embedding(x_tokens)
         temp_pos = self.positional_embedding(x_positions)
         temp = temp_tokens + temp_pos
