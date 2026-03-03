@@ -349,6 +349,12 @@ class GPT:
                 return
 
         tokens = self.vocab.get_token_arr(plain_text)
+
+        # Ensure there is enough tokens to not error
+        if len(tokens)<self.config.max_seq_len:
+            print("ERROR: Not enough tokens. Doing nothing.")
+            return 
+
         self.update_vocab_with_tokens(tokens)
         token_ids = self.vocab.get_token_ids(tokens)
         losses = [-1 for _ in range(n_iter)]
@@ -400,7 +406,7 @@ class GPT:
         for i in range(out_tokens):
             prompt_token_ids = self.vocab.get_prompt_token_ids(prompt)
             if len(prompt_token_ids) == 0:
-                if len(prompt.strip() > 0):
+                if len(prompt.strip()) > 0:
                     return "Prompt did not contain any recognized tokens."
                 return "No prompt provided!"
             prompt_tensor = torch.tensor(prompt_token_ids)
@@ -461,7 +467,7 @@ class GPT:
 
         display(output, input_box)
     
-    def chat(self):
+    def chat(self, out_tokens=15, sampling='multinomial'):
         """
         Enter CLI interface where you can chat with model.
         Quit by entering 'q'
@@ -474,7 +480,7 @@ class GPT:
                 prompt = input(">>> ")
                 if prompt.lower() in breakwords:
                     break
-                response = self.query(prompt, sampling='multinomial')
+                response = self.query(prompt, out_tokens=out_tokens, sampling=sampling)
                 print(f'(model) "{response}"')
 
     def save(self, name = None):
