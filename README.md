@@ -148,6 +148,12 @@ my_gpt = GPT.load_gpt_from('my_gpt')
 ```
 Again, this only takes one parameter, the model name as a string that you wish to load.
 
+#### Notes:
+* The files for a pre-trained model are included in this [Drive](https://drive.google.com/drive/folders/144RkrgmZfLuIxrbF6McGu1haAtI957BC?usp=drive_link)
+* Download the two files, place them in the `models/` directory, and call:
+```my_gpt = GPT.load_gpt_from('state_of_union_model')```
+* my_gpt is now a functional GPT object that can be used as described above.
+
 ### Chatting with a Model
 To 'chat' with a model (which is nothing more than a nice interface to repeatedly query a model and see results), use:
 ```
