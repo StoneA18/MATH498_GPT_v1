@@ -75,7 +75,7 @@ uv sync
 ```
 To install the project dependencies.
 
-Before running a notebook, like `gpt_demo.ipynb`, you will need to select the kernel to use (top-right corner in VSCode), which will be under the virtual environment created by uv. To run a normal python script that you may create, use:
+Before running a notebook, like `gpt_demo.ipynb`, you will need to select the kernel to use (top-right corner in VSCode), which will be under the virtual environment created by uv (named something like 'a1-transformer'. To run a normal python script that you may create, use:
 ```
 uv run my_script.py
 ```
