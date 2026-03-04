@@ -82,7 +82,7 @@ uv run my_script.py
 
 To run the tests, use:
 ```
-uv run pytest unit_tests.py
+uv run pytest unit_tests.py -v
 ```
 
 If you are going to experiment with the following usage instructions, it is recommended you do so in a Jupyter notebook.
@@ -236,7 +236,7 @@ Per the 'Evaluation Criteria' checklist on this assignment, this checklist aims 
 1. The README. This file properly documents everything in the repository. Particularly, see the sections [Repository Contents](#repository-contents), [Using the Project](#using-the-project) and [Project Structure](#project-structure).
 2. The code does indeed run. Don't believe us? Try it yourself by running the cells in `gpt_demo.ipynb` or by running all 111 unit tests with the command:
 ```
-uv run pytest unit_tests.py
+uv run pytest unit_tests.py -v
 ```
 3. Required architecture:
   * **Attention:** Implemented on line 241 in `master_utility.py`.
