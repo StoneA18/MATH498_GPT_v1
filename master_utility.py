@@ -307,6 +307,20 @@ class GPT:
         self.config = Config(d_model=128, d_vocab=10, d_hidden=512, max_seq_len=256, n_layers=4)  
         self.model = LanguageModel(self.config)
 
+    def get_config(self):
+        """
+        Returns the config containing the hyperparameters of the model.
+        """
+        return self.config
+    
+    def set_config(self, config):
+        """
+        Set the model hyperparameters to a user defined config object.
+        """
+        self.config = config
+        self.refresh_vocab_dim()
+        return 
+
     def update_vocab_with_tokens(self, tokens: list[str]):
         """
         Helper function to update not only our vocab but our language model when new tokens are used
